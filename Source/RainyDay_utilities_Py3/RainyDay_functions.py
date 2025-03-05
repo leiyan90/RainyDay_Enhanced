@@ -362,7 +362,7 @@ def SSTalt(passrain,sstx,ssty,trimmask,maskheight,maskwidth,intensemean=None,int
         else:
             if domean:
                 #sys.exit('need to fix short duration part')
-                muR=homemean-intensemean[y,x]
+                muR=homemean-intensemean[y,x]      #LY: we don't use mean, so here we need to revise and use trimmask
                 if doall:
                     stdR=np.sqrt(np.power(homestd,2)+np.power(intensestd[y,x],2)-2.*intensecorr[y,x]*homestd*intensestd[y,x])
                    # multiplier=sp.stats.lognorm.ppf(rquant[k],stdR,loc=0,scale=np.exp(muR))     
@@ -404,6 +404,78 @@ def SSTalt(passrain,sstx,ssty,trimmask,maskheight,maskwidth,intensemean=None,int
     else:
         return rainsum,whichstep
 
+# =============================================================================
+# added Lei 02122025: Dimensionless rescaling
+# =============================================================================
+@jit(fastmath=True)
+def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, intensegrid=None, homegrid=None, durcheck=False):
+    maxmultiplier = 1.5  #LY: should we use this?
+
+    rainsum = np.zeros((len(sstx)), dtype='float32')
+    whichstep = np.zeros((len(sstx)), dtype='int32')
+    nreals = len(rainsum)
+    nsteps = passrain.shape[0]
+    multiout = np.empty((len(sstx), maskheight, maskwidth), dtype='float32')
+
+    if (intensegrid is not None) and (homegrid is not None):
+        rescale = True
+    else:
+        rescale = False
+
+    if durcheck == False:
+        exprain = np.expand_dims(passrain, 0)
+    else:
+        exprain = passrain
+
+    for k in range(0, nreals):
+        y = int(ssty[k])
+        x = int(sstx[k])
+        if np.all(np.less(exprain[:, y:y + maskheight, x:x + maskwidth], 0.5)):
+            rainsum[k] = 0.
+            multiout[k] = -9999.
+        else:
+            if rescale:
+                # sys.exit('need to fix short duration part')
+                intensegrid_trans = np.multiply(intensegrid[y:y + maskheight, x:x + maskwidth], trimmask)
+                multiplier=np.exp( homegrid - intensegrid_trans )
+                multiplier[multiplier > maxmultiplier] = 1.5
+                multiout[k, :, :] = multiplier
+            else:
+                multiplier = 1.
+
+            if durcheck == True:
+                storesum = 0.
+                storestep = 0
+                for kk in range(0, nsteps):
+                    if rescale:
+                        tempsum = numba_multimask_calc_rescale(passrain[kk, y:y + maskheight, x:x + maskwidth], trimmask, multiplier)
+                    else:
+                        tempsum = numba_multimask_calc(passrain[kk, :], trimmask, y, x, maskheight, maskwidth) * multiplier
+
+                    if tempsum > storesum:
+                        storesum = tempsum
+                        storestep = kk
+
+                rainsum[k] = storesum
+                whichstep[k] = storestep
+            else:
+                if rescale:
+                    rainsum[k] = numba_multimask_calc_rescale(passrain[y:y + maskheight, x:x + maskwidth], trimmask, multiplier)
+                else:
+                    rainsum[k] = numba_multimask_calc(passrain, trimmask, y, x, maskheight, maskwidth) * multiplier
+    if rescale:
+        return rainsum, multiout, whichstep
+    else:
+        return rainsum, whichstep
+
+# =============================================================================
+# added Lei 02122025: Calculate the rescaled rainfall
+# =============================================================================
+@jit(nopython=True, fastmath=True)
+def numba_multimask_calc_rescale(passrain, trimmask, multiplier):
+    train = passrain * multiplier * trimmask
+    rainsum = np.sum(train)
+    return rainsum
 
 #@jit(nopython=True,fastmath=True,parallel=True)
 @jit(nopython=True,fastmath=True)
@@ -1486,6 +1558,48 @@ def readintensityfile(rfile,inbounds=False):
         outlon=np.array(infile.variables['longitude'][:])        
     infile.close()
     return outrain,outtime,outlat,outlon
+
+# =============================================================================
+# added Lei 02122025: Read the quantile basemap for rescaling
+# =============================================================================
+def read_quantilefile(amfile, duration, return_period, mask=True):
+    """
+    Reads the amfile and calculates the design values based on the specified duration and return period using the empirical probability distribution.
+    Uses np.quantile to directly compute the quantile
+
+    Parameters:
+    amfile (str): Path to the input file
+    duration (int): Specified duration (6, 12, 24, 48, 72, 96)
+    return_period (int): Specified return period (e.g., 2, 5, 10, 25, 50, 100)
+    inbounds (tuple or bool): Optional, specifies the region boundaries (lon_min, lon_max, lat_min, lat_max)
+
+    Returns:
+    design_values (np.array): Array of design values
+    lat (np.array): Array of latitudes
+    lon (np.array): Array of longitudes
+    """
+    ds = xr.open_dataset(amfile)
+
+    # Check if the specified duration is in the dataset
+    if duration not in ds['duration'].values:
+        raise ValueError(f"The specified duration {duration} is not in the dataset. Available duration values are: {ds['duration'].values}")
+
+    ds = ds.sel(duration=duration)
+
+    # If region boundaries are specified, crop the data
+    if mask:
+        lon_min, lon_max, lat_min, lat_max = inbounds
+        ds = ds.sel(latitude=slice(lat_min, lat_max), longitude=slice(lon_min, lon_max))
+
+    precrate = ds['precrate'].values
+    lat = np.array(ds['latitude'][:])
+    lon = np.array(ds['longitude'][:])
+
+    # Calculate the quantile corresponding to the empirical probability
+    empirical_quantile = 1 - 1 / return_period
+    design_values = np.quantile(precrate, empirical_quantile, axis=0, method='linear')
+    ds.close()
+    return design_values, lat, lon
 
 def readmeanfile(rfile,inbounds=False):
     infile=Dataset(rfile,'r')

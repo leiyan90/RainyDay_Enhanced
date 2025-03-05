@@ -494,7 +494,9 @@ if areatype.lower()=="pointlist":
     FreqFile_min=fullpath+'/'+scenarioname+'_min.FreqAnalysis'
     FreqFile_max=fullpath+'/'+scenarioname+'_max.FreqAnalysis'
 else:
-    FreqFile=fullpath+'/'+scenarioname+'_FreqAnalysis.csv'
+    #FreqFile=fullpath+'/'+scenarioname+'_FreqAnalysis.csv'
+    FreqFile = f"{fullpath}/{scenarioname}_FreqAnalysis" + (f"_{rescaletype}" if rescaletype.lower() != "none" else "") + ".csv"
+
 #
 #
 # do you want to write output scenarios in netcdf format, e.g. for flood frequency simulations?
@@ -1251,7 +1253,17 @@ if CreateCatalog:
                         break
                 # stm_rain,stm_time = RainyDay.readnetcdf(stm_file,variables,indices)
                 stm_rain,stm_time = RainyDay.readnetcdf(stm_file,variables,idxes,dropvars=droplist,calendar=calendar,time_units=time_units)
-            cind = np.where(stm_time == current_datetime)[0][0]
+            if stm_time.size == 0:
+                print(f"Error: Empty stm_time for {stm_file}, skipping this timestep.")
+                continue
+
+            if current_datetime not in stm_time:
+                print(f"Warning: {current_datetime} not found in {stm_file}, using closest match.")
+                cind = np.argmin(np.abs(stm_time - current_datetime))
+            else:
+                cind = np.where(stm_time == current_datetime)[0][0]
+
+            #cind = np.where(stm_time == current_datetime)[0][0]
             catrain[k,:] = stm_rain[cind,:]
             current_datetime += rainprop.timeres 
             k += 1
@@ -1382,7 +1394,8 @@ else:
     nstorms= len(stormlist)
 stormnumber = [RainyDay.extract_storm_number(storm, catalogname) for storm in stormlist]   ## We can use this variable somewhere.
 
-
+catx = np.array(catx, dtype=int)
+caty = np.array(caty, dtype=int)
 
 #==============================================================================
 # If the storm catalog has a different duration than the specified duration, fix it!
@@ -1960,7 +1973,8 @@ if FreqAnalysis:
         ymask=ymask[np.equal(domainmask,True)]
         
     if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
-        whichmultiplier=np.empty_like(whichrain)
+        #whichmultiplier=np.empty_like(whichrain)
+        whichmultiplier = np.empty((whichrain.shape[0], whichrain.shape[1], whichrain.shape[2], whichrain.shape[3], maskheight, maskwidth),dtype="float32")   #LYW
         whichmultiplier[:]=np.nan
 
         
@@ -1971,12 +1985,15 @@ if FreqAnalysis:
 
     if rescaletype=='stochastic' or rescaletype=='deterministic':
         smoothsig=5
-        
+
+        #=========================================================
+        # Crop the rainfall data to the bounding box of the domain
+        #=========================================================
         print("reading in precipitation intensity data...")
         intenserain,_,intenselat,intenselon=RainyDay.readintensityfile(rescalingfile)
         intensemask=np.equal(np.sum(intenserain,axis=0),0.)
         intenserain[:,intensemask]=np.nan
-        int_xmin=np.abs(intenselon-rainprop.bndbox[0]).argmin()
+        int_xmin=np.abs(intenselon-rainprop.bndbox[0]).argmin()  #LY: raindrop's bounding box is the same as the storm catalog's bounding box
         int_ymin=np.abs(intenselat-rainprop.bndbox[3]).argmin()
         int_xmax=np.abs(intenselon-rainprop.bndbox[1]).argmin()
         int_ymax=np.abs(intenselat-rainprop.bndbox[2]).argmin()
@@ -1988,8 +2005,11 @@ if FreqAnalysis:
         
         #intenserain[np.equal(intenserain,0.)]=np.nan
         nintstorms=np.min((intenserain.shape[0],2*nyears))
-        intenserain=intenserain[-nintstorms:,:]
+        intenserain=intenserain[-nintstorms:,:]            #LY: obatain the lastest 2*nyears storms
 
+        #=========================================================
+        # Regridding the intensity data to the stormcatalog grid
+        #=========================================================
         if np.array_equal(intenselat,latrange)==False or np.array_equal(intenselon,lonrange)==False:  
             intensegridx,intensengridy=np.meshgrid(intenselon,intenselat)        
             ingrid_intense=np.column_stack((intensegridx.flatten(),intensengridy.flatten())) 
@@ -2006,8 +2026,8 @@ if FreqAnalysis:
 
         # the stochastic multiplier approach uses the log of the rainfall:
         intenserain=np.log(intenserain)
-        hometemp=np.nansum(np.multiply(intenserain,catmask),axis=(1,2))/mnorm
-        xlen_wmask=rainprop.subdimensions[1]-maskwidth+1
+        hometemp=np.nansum(np.multiply(intenserain,catmask),axis=(1,2))/mnorm   #LY: multiply with the WS raster, sum and averaged with # of valid(non-zero) rain grid #mnorm=np.sum(trimmask)
+        xlen_wmask=rainprop.subdimensions[1]-maskwidth+1                        #LY: xlen_wmask and ylen_wmask are the dimensions of TD after the WSmask is applied, for transpotation
         ylen_wmask=rainprop.subdimensions[0]-maskheight+1
                 
         
@@ -2034,7 +2054,7 @@ if FreqAnalysis:
             homemean=np.nansum(np.multiply(intensemean,catmask),axis=(0,1))/mnorm
             homestd=np.nansum(np.multiply(intensestd,catmask),axis=(0,1))/mnorm
         
-        # just in case you don't have any data to inform the rescaling:
+        # just in case you don't have any data to inform the rescaling:    #LY: postprocessing for grids with NaN or inf values
         intensemean[np.isneginf(intensemean)]=homemean
         intensestd[np.isneginf(intensestd)]=0.
         intensecorr[np.isneginf(intensecorr)]=1.0
@@ -2043,11 +2063,38 @@ if FreqAnalysis:
         intensestd[np.isnan(intensestd)]=0.
         intensecorr[np.isnan(intensecorr)]=1.0
         
-    elif rescaletype=='dimensionless':
+    elif rescaletype=='dimensionless':   #LY: read the atlas14 map as the intensity map
         print("reading in precipitation map for dimensionless SST...")
         if '.nc' in rescalingfile:
-            sys.exit('need to set this up')
+            #sys.exit('need to set this up')
             #intenserain,_,intenselat,intenselon=RainyDay.readintensityfile(rescalingfile)
+            intenserain, intenselat, intenselon = RainyDay.read_quantilefile(amfile = rescalingfile, duration=duration, return_period=2, mask=False)  #LYW: read the quantile map and crop it
+            intensemask = np.equal(np.sum(intenserain, axis=0), 0.)
+            intenserain[:, intensemask] = np.nan
+
+            #LY: maybe better to get the intense rain using domainmask, cause the lat and lon is the same as the storm catalog, differ from the stochastic case
+            int_xmin = np.abs(intenselon - rainprop.bndbox[0].item()).argmin()
+            int_xmax = np.abs(intenselon - rainprop.bndbox[1].item()).argmin()
+            int_ymin, int_ymax = sorted([np.abs(intenselat - rainprop.bndbox[3].item()).argmin(),
+                                         np.abs(intenselat - rainprop.bndbox[2].item()).argmin()])
+
+            if int_xmax < len(intenselon) - 1:
+                int_xmax += 1
+            if int_ymax < len(intenselat) - 1:
+                int_ymax += 1
+
+            intensegrid = intenserain[int_ymin:int_ymax, int_xmin:int_xmax]
+            intensegrid = np.log(intensegrid)
+            intenselat = intenselat[int_ymin:int_ymax]
+            intenselon = intenselon[int_xmin:int_xmax]
+
+            y_min, x_min = np.argwhere(catmask != 0).min(axis=0)
+            y_max, x_max = np.argwhere(catmask != 0).max(axis=0)
+
+            homegrid = np.multiply(intensegrid[y_min:y_max + 1, x_min:x_max + 1], trimmask)
+
+
+
         elif '.asc' in rescalingfile:
             asciigrid,ncols,nrows,xllcorner,yllcorner,cellsize=RainyDay.read_arcascii(rescalingfile)
             dlsstarea=[xllcorner,xllcorner+ncols*cellsize,yllcorner,yllcorner+nrows*cellsize]
@@ -2057,14 +2104,14 @@ if FreqAnalysis:
             delaunay=sp.spatial.qhull.Delaunay(atlas14_domain)
             interp=sp.interpolate.LinearNDInterpolator(delaunay,asciigrid.flatten(),fill_value=np.nan)
             
-            grid_out=np.column_stack((ingridx.flatten(),ingridy.flatten())) 
-            atlas_regridded=np.reshape(interp(grid_out),ingridx.shape) 
+            grid_out=np.column_stack((ingridx.flatten(),ingridy.flatten()))    #LY: the grid location of the catalog
+            atlas_regridded=np.reshape(interp(grid_out),ingridx.shape)         #LY: interp atlas to the catalog grid
             atlas_regridded=np.log(atlas_regridded)
             if areatype.lower()!='pointlist':
-                hometemp=np.nansum(np.multiply(atlas_regridded,catmask))/mnorm
+                hometemp=np.nansum(np.multiply(atlas_regridded,catmask))/mnorm     #LY: for the dimensionless SST, the basin's mean value (catmask: the basin (1) in the stormcatalog(0))
             else:
-                hometemp=np.nanmean(atlas_regridded[domainmask==True])
-            atlas_regridded[np.isnan(atlas_regridded)]=hometemp
+                hometemp=np.nanmean(atlas_regridded[domainmask==True])   #LY: the mean atlas map for the whole rect region bounded the transposition domain (domainmask)
+            atlas_regridded[np.isnan(atlas_regridded)]=hometemp          #LY: postprocessing: replace the NaN values with the mean value
    
         else:
             sys.exit('Unrecognized file format provided for dimensionless SST')   
@@ -2073,7 +2120,7 @@ if FreqAnalysis:
         
    
     # here is the main resampling and transposition loop
-    for i in np.arange(0,nstorms):
+    for i in np.arange(0,nstorms):                                             #LY: nstorms: totoal # of storms in catalog
         catrain,_,_,_,_,_,_,_,_,_,_ = RainyDay.readcatalog(stormlist[i])
         catrain = np.array(catrain)
         catrain[np.less(catrain,0.)]=np.nan
@@ -2102,15 +2149,16 @@ if FreqAnalysis:
             print('adjusting duration of storms, '+"{0:0.0f}".format(100*(i+1)/nstorms)+'% complete...')
             dur_max=0.
             for j in range(0,catrain.shape[0]-int(duration*60/rainprop.timeres)):
-                maxpass=np.nansum(catrain[j:j+int(duration*60./rainprop.timeres),:],axis=0)
-                
+                maxpass=np.nansum(catrain[j:j+int(duration*60./rainprop.timeres),:],axis=0)   #LY:  sliding sum for whole 2d storm, excluding nan values
+
+                #LY: maxtemp is the maximum value of basin-weighted sum of all grids winthin basin for all the sliding windows covering all possible transpositions in the domsin
                 if domain_type.lower()=='irregular':
                     maxpass = maxpass * domainmask
                     maxtemp,tempy,tempx=RainyDay.catalogNumba_irregular(maxpass,trimmask,xlen,ylen,xloop,yloop,maskheight,maskwidth,rainsum,stride=catalogstride)
                 else:
                     maxtemp,tempy,tempx=RainyDay.catalogNumba(maxpass,trimmask,xlen,ylen,xloop,yloop,maskheight,maskwidth,rainsum,stride=catalogstride)
      
-                if maxtemp>dur_max:
+                if maxtemp>dur_max:      #LY: update the maximum value, location and time when it is surpassed
                     dur_max=maxtemp
                     dur_x=tempx
                     dur_y=tempy
@@ -2118,7 +2166,8 @@ if FreqAnalysis:
 
             catmax[i]=dur_max
             catx[i]=dur_x
-            caty[i]=dur_y  
+            caty[i]=dur_y
+            #LY: obtain the catrain for the maximum rainfall period
             catrain=catrain[dur_j:dur_j+int(duration*60./rainprop.timeres),:]  # I think this line is a problem-DBW 9/26/2023
             temptime[i,:]=cattime[i,dur_j:dur_j+int(duration*60./rainprop.timeres)]
         print('Resampling and transposing storm '+str(i+1)+' out of '+str(nstorms)+' ('"{0:0.0f}".format(100*(i+1)/nstorms)+'%)')
@@ -2136,8 +2185,8 @@ if FreqAnalysis:
                 whichx[whichstorms==i,pt],whichy[whichstorms==i,pt]=RainyDay.numbakernel_fast(rndloc,cumkernel[:,:,pt],tempx,tempy,rainprop.subdimensions[1])
 
         if transpotype=='uniform' and domain_type=='irregular':
-            rndloc=np.random.randint(0,np.sum(np.equal(domainmask,True)),np.sum(whichstorms==i))
-            for pt in np.arange(0,whichx.shape[3]):
+            rndloc=np.random.randint(0,np.sum(np.equal(domainmask,True)),np.sum(whichstorms==i))   #LY: transpose within the test domain
+            for pt in np.arange(0,whichx.shape[3]):                #LY: if irregular, whichx.shape[3]=1
                 whichx[whichstorms==i,pt]=xmask[rndloc].reshape(len(xmask[rndloc]))
                 whichy[whichstorms==i,pt]=ymask[rndloc].reshape(len(ymask[rndloc]))
         
@@ -2146,12 +2195,12 @@ if FreqAnalysis:
             sys.exit("not configured for manually supplied pdf yet!")
     
         if durcorrection:
-            passrain=np.array(RainyDay.rolling_sum(catrain, int(duration*60/rainprop.timeres)),dtype='float32')
+            passrain=np.array(RainyDay.rolling_sum(catrain, int(duration*60/rainprop.timeres)),dtype='float32') #LY: catrain is the rain series of the stormcatalog
             
         else:
-            passrain=np.nansum(catrain,axis=0)         # time-average the rainfall
-    
-        if rotation: 
+            passrain=np.nansum(catrain,axis=0)         # time-average the rainfall    #LY: time-average of the max rainfall
+
+        if rotation:       #LY: remove?
             print('rotating storms for transposition, '+str(100*(i+1)/nstorms)+'% complete...')
             delarray.append([])
              
@@ -2183,7 +2232,10 @@ if FreqAnalysis:
                 binctr=binctr+1
         else:
             for pt in np.arange(0,whichx.shape[3]):
-                if rescaletype=='stochastic' and areatype.lower()!='pointlist' and areatype.lower!='point':                    
+                if rescaletype == 'dimensionless' and areatype.lower() != 'pointlist' and areatype.lower() != 'point':  # LYW: dimensionless rescaling
+                    temprain, whichmultiplier[whichstorms == i, pt], _ = RainyDay.SSTalt_normalized(passrain,whichx[whichstorms == i, pt], whichy[whichstorms == i, pt],trimmask, maskheight,maskwidth,durcheck=durcorrection,intensegrid=intensegrid,homegrid=homegrid)
+                    whichrain[whichstorms == i, pt] = temprain * rainprop.timeres / 60. / mnorm
+                if rescaletype=='stochastic' and areatype.lower()!='pointlist' and areatype.lower!='point':
                     temprain,whichmultiplier[whichstorms==i,pt],whichstep=RainyDay.SSTalt(passrain,whichx[whichstorms==i,pt],whichy[whichstorms==i,pt],trimmask,maskheight,maskwidth,intensemean=intensemean,intensestd=intensestd,intensecorr=intensecorr,homemean=homemean,homestd=homestd,durcheck=durcorrection)
                     whichrain[whichstorms==i,pt]=temprain*rainprop.timeres/60./mnorm    
                 elif rescaletype=='deterministic' and areatype.lower()!='pointlist' and areatype.lower()!='point':
@@ -2196,7 +2248,7 @@ if FreqAnalysis:
                     if rescaletype=='deterministic':
                         homemeanpt=intensemean[yind_list[pt],xind_list[pt]]
                         temprain,whichmultiplier[whichstorms==i,pt],_=RainyDay.SSTalt_singlecell(passrain,whichx[whichstorms==i,pt],whichy[whichstorms==i,pt],trimmask,1,1,durcheck=durcorrection,intensemean=intensemean,homemean=homemeanpt)
-                    elif rescaletype=='dimensionless':
+                    elif rescaletype=='dimensionless':       #LY: dimensionless for pointlist
                         homemeanpt=atlas_regridded[yind_list[pt],xind_list[pt]]
                         temprain,whichmultiplier[whichstorms==i,pt],_=RainyDay.SSTalt_singlecell(passrain,whichx[whichstorms==i,pt],whichy[whichstorms==i,pt],trimmask,1,1,durcheck=durcorrection,intensemean=atlas_regridded,homemean=homemeanpt)
                     elif rescaletype=='stochastic':
@@ -2391,8 +2443,10 @@ if FreqAnalysis:
                 maxangles[:]=-9999.
                 sortangle[:]=-9999.
             if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
-                maxmultiplier=np.empty((maxind.shape),dtype="float32") 
-                sortmultiplier=np.empty((maxind.shape),dtype="float32")
+                maxmultiplier = np.empty((maxind.shape[0], maxind.shape[1], maxind.shape[2], maskheight, maskwidth),
+                                         dtype="float32")
+                sortmultiplier = np.empty((maxind.shape[0], maxind.shape[1], maxind.shape[2], maskheight, maskwidth),
+                                          dtype="float32")
                 maxmultiplier[:]=-9999.
                 sortmultiplier[:]=-9999.
                 
@@ -2427,7 +2481,7 @@ if FreqAnalysis:
             #rp_pds=1./(1.-np.exp(-1./(returnperiod)))
             #rp_pds=1./np.log(returnperiod/(returnperiod-1))
             sortind=np.argsort(maxrain,axis=0)
-            sortrain=np.sort(maxrain,axis=0)
+            sortrain=np.sort(maxrain,axis=0)    #LY: sort the maxrain in ascending order, 2D array, (nyear, nrealization)
             sortx=np.empty((maxind.shape),dtype="int32")
             sorty=np.empty((maxind.shape),dtype="int32")
             sortstorms=np.empty((maxind.shape),dtype="int32")
@@ -2438,7 +2492,7 @@ if FreqAnalysis:
             for i in range(0,nrealizations):
                 sortx[:,i]=maxx[sortind[:,i],i]
                 sorty[:,i]=maxy[sortind[:,i],i]
-                sortstorms[:,i]=maxstorm[sortind[:,i],i]
+                sortstorms[:,i]=maxstorm[sortind[:,i],i]   #LY: sort the maxrain for each realization in ascending order, 1D array, (nyear)
                 # if arfcorrection:
                 #     sortstep[:,i]=maxstep[sortind[:,i],i]
                 if rotation:
@@ -2651,7 +2705,9 @@ if FreqAnalysis:
         plt.gca().invert_xaxis()
         ax.grid()
         plt.tight_layout()
-        plt.savefig(fullpath+'/'+scenarioname+'_FrequencyAnalysis.png',dpi=250)
+        #plt.savefig(fullpath+'/'+scenarioname+'_FrequencyAnalysis.png',dpi=250)
+        plt.savefig(f"{fullpath}/{scenarioname}_FrequencyAnalysis" +  (f"_{rescaletype}" if rescaletype.lower() != "none" else "") + ".png", dpi=250)
+
         plt.close('all')
             
         
