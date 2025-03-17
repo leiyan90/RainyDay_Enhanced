@@ -2398,7 +2398,7 @@ if FreqAnalysis:
     else:
         if calctype=='ams' or calctype=='pds':          # this isn't very elegant!
             if calctype.lower()=='ams':
-                maxrain=np.nanmax(whichrain[:,:,:,pt],axis=0)
+                maxrain=np.nanmax(whichrain[:,:,:,pt],axis=0)  #LY: find the AM for each year and each realization
                 maxind=np.nanargmax(whichrain,axis=0)
             elif calctype.lower()=='pds':
                 temprain=np.squeeze(whichrain)
@@ -2453,7 +2453,7 @@ if FreqAnalysis:
             for i in range(0,np.max(ncounts)):
                 maxx[maxind==i]=np.squeeze(whichx[i,np.squeeze(maxind==i)])
                 maxy[maxind==i]=np.squeeze(whichy[i,np.squeeze(maxind==i)])
-                maxstorm[maxind==i]=np.squeeze(whichstorms[i,np.squeeze(maxind==i)])
+                maxstorm[maxind==i]=np.squeeze(whichstorms[i,np.squeeze(maxind==i)])  #LY: find the original parent storm index for AM
                 # if arfcorrection:
                 #     maxstep[maxind==i]=np.squeeze(whichstep[i,np.squeeze(maxind==i)])
                 
@@ -2492,7 +2492,7 @@ if FreqAnalysis:
             for i in range(0,nrealizations):
                 sortx[:,i]=maxx[sortind[:,i],i]
                 sorty[:,i]=maxy[sortind[:,i],i]
-                sortstorms[:,i]=maxstorm[sortind[:,i],i]   #LY: sort the maxrain for each realization in ascending order, 1D array, (nyear)
+                sortstorms[:,i]=maxstorm[sortind[:,i],i]   #LY: sort the parent storm index for each realization in ascending order, 1D array, (nyear)
                 # if arfcorrection:
                 #     sortstep[:,i]=maxstep[sortind[:,i],i]
                 if rotation:
@@ -2745,7 +2745,7 @@ if FreqAnalysis:
         whichy_sorted_first = np.take_along_axis(np.squeeze(whichy), sortind_first_axis, axis=0)
 
         # Get sorting indices based on the first channel of whichrain_sorted_first along the second axis
-        sortind_second_axis = np.argsort(whichrain_sorted_first[-1, :, :],axis=0)
+        sortind_second_axis = np.argsort(whichrain_sorted_first[-1, :, :],axis=0)  #LY: sort the AM of first channel along the second axis (nyear), to (if needed) select storms based on given return period
 
         # Sort all arrays along the second axis
         for i in range(whichrain_sorted_first.shape[0]):
@@ -2762,7 +2762,7 @@ if FreqAnalysis:
         whichy = whichy_sorted_first
 
 
-
+        # LY: the main variables for writing the scenarios
         whichstorms=whichstorms[-nperyear:,minind:,:]
         writex=whichx[-nperyear:,minind:,:]
         writey=whichy[-nperyear:,minind:,:]
@@ -2771,13 +2771,17 @@ if FreqAnalysis:
         writemask[np.greater(trimmask,0.)]=1.   # we don't want fractional masks here
         
         
-        # if rotation:
-        #     sys.exit("We haven't set this up yet after the major refactoring")
-        #     writeangle=sortangle[minind:,:]
-        #     binwriteang=np.digitize(writeangle.ravel(),angbins).reshape(writeangle.shape)
-        # if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
-        #     sys.exit("We haven't set this up yet after the major refactoring")
-        #     writemultiplier=sortmultiplier[minind:,:]       
+        if rotation:
+            sys.exit("We haven't set this up yet after the major refactoring")
+            writeangle=sortangle[minind:,:]
+            binwriteang=np.digitize(writeangle.ravel(),angbins).reshape(writeangle.shape)
+        if rescaletype=='dimensionless':
+            print("You are rescaling the rainfall scenarios\nranking rescaling factors for writing scenarios...")
+            sortind_first_axis_expanded = sortind_first_axis[:, :, :, np.newaxis, np.newaxis]
+            whichmultiplier_sorted_first = np.take_along_axis(np.squeeze(whichmultiplier),sortind_first_axis_expanded, axis=0)
+            sortind_second_axis_expanded = sortind_second_axis[np.newaxis, :, :, np.newaxis, np.newaxis]
+            whichmultiplier_sorted_second = np.take_along_axis(whichmultiplier_sorted_first,sortind_second_axis_expanded, axis=1)
+            writemultiplier=whichmultiplier_sorted_second[-nperyear:,minind:,:]
         
         for i in np.arange(0,nstorms):
             print("writing scenarios for storm "+str(i+1))
@@ -2803,11 +2807,15 @@ if FreqAnalysis:
                     
                     name_scenariofile=fullpath+'/Realizations/Realization'+str(trealization[0]+1)+'/scenario_'+scenarioname+'_rlz'+str(trealization[0]+1)+'year'+str(tyear[0]+1)+'storm'+str(tstorm[0]+1)+'.nc'
                     #outrain=RainyDay.SSTspin_write_v2(catrain,np.squeeze(writex[:,rlz]),np.squeeze(writey[:,rlz]),np.squeeze(writestorm[:,rlz]),nanmask,maskheight,maskwidth,precat,cattime[:,-1],rainprop,spin=prependrain,flexspin=False,samptype=transpotype,cumkernel=cumkernel,rotation=rotation,domaintype=domain_type)
-                    RainyDay.writescenariofile(catrain,raintime,outx,outy,name_scenariofile,i,tyear[0],trealization[0],maskheight,maskwidth,subrangelat,subrangelon,scenarioname,writemask)
-    
-    
-    
-    #testrain=np.nansum(np.multiply(catrain[:,21 : 21+maskheight, 29 : 29+maskwidth],trimmask),axis=(1,2))/mnorm 
+                    if rescaletype == 'dimensionless':
+                        outmultiplier = writemultiplier[stormindex == k]
+                        RainyDay.Normalized_SST_write(catrain, raintime, outx, outy, outmultiplier, name_scenariofile, i, tyear[0],
+                                                   trealization[0], maskheight, maskwidth, subrangelat, subrangelon,
+                                                   scenarioname, writemask)
+                    else:
+                        RainyDay.writescenariofile(catrain,raintime,outx,outy,name_scenariofile,i,tyear[0],trealization[0],maskheight,maskwidth,subrangelat,subrangelon,scenarioname,writemask)
+
+    #testrain=np.nansum(np.multiply(catrain[:,21 : 21+maskheight, 29 : 29+maskwidth],trimmask),axis=(1,2))/mnorm
     
     #np.nansum(np.multiply(plotrain[:,caty[i]:caty[i]+maskheight,catx[i]:catx[i]+maskwidth],trimmask),axis=(1,2))/mnorm
     
