@@ -409,7 +409,7 @@ def SSTalt(passrain,sstx,ssty,trimmask,maskheight,maskwidth,intensemean=None,int
 # =============================================================================
 @jit(fastmath=True)
 def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, intensegrid=None, homegrid=None, durcheck=False):
-    maxmultiplier = 1.5  #LY: should we use this?
+    #maxmultiplier = 1.5  #LY: should we use this?
 
     rainsum = np.zeros((len(sstx)), dtype='float32')
     whichstep = np.zeros((len(sstx)), dtype='int32')
@@ -436,10 +436,19 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, int
         else:
             if rescale:
                 # sys.exit('need to fix short duration part')
-                intensegrid_trans = np.multiply(intensegrid[y:y + maskheight, x:x + maskwidth], trimmask)
+                intensegrid_trans = intensegrid[y:y + maskheight, x:x + maskwidth] * trimmask
                 multiplier=np.exp( homegrid - intensegrid_trans )
-                multiplier[multiplier > maxmultiplier] = 1.5
-                multiout[k, :, :] = multiplier
+                # multiplier[multiplier > maxmultiplier] = 1.5
+                # multiout[k, :, :] = multiplier
+                valid_mask = (trimmask != 0)
+                valid_multiplier = multiplier[valid_mask]
+
+                sorted_arr = np.sort(valid_multiplier)
+                n = len(sorted_arr)
+                p10 = sorted_arr[max(0, int(0.1 * n) - 1)]
+                p90 = sorted_arr[min(n - 1, int(0.9 * n))]
+
+                multiplier = np.clip(multiplier, p10, p90)
             else:
                 multiplier = 1.
 
@@ -471,11 +480,21 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, int
 # =============================================================================
 # added Lei 02122025: Calculate the rescaled rainfall
 # =============================================================================
+# @jit(nopython=True, fastmath=True)
+# def numba_multimask_calc_rescale(passrain, trimmask, multiplier):
+#     train = passrain * multiplier * trimmask
+#     rainsum = np.sum(train)
+#     return rainsum
 @jit(nopython=True, fastmath=True)
 def numba_multimask_calc_rescale(passrain, trimmask, multiplier):
-    train = passrain * multiplier * trimmask
-    rainsum = np.sum(train)
-    return rainsum
+    total = 0.0
+    passrain = np.ascontiguousarray(passrain.astype(np.float32))
+    multiplier = np.ascontiguousarray(multiplier.astype(np.float32))
+    trimmask = np.ascontiguousarray(trimmask.astype(np.float32))
+    for i in prange(passrain.shape[0]):
+        for j in range(passrain.shape[1]):
+            total += passrain[i,j] * multiplier[i,j] * trimmask[i,j]
+    return total
 
 #@jit(nopython=True,fastmath=True,parallel=True)
 @jit(nopython=True,fastmath=True)
@@ -1827,10 +1846,54 @@ def writescenariofile(catrain,raintime,rainlocx,rainlocy,name_scenariofile,tstor
     #scenario.time.encoding['units'] = "minutes since 1970-01-01 00:00:00"
     
     data.to_netcdf(name_scenariofile)
-    data.close()    
+    data.close()
 
 
+# =============================================================================
+# added LY 03132025: writing single storm scenario file using normalized SST
+# =============================================================================
+def Normalized_SST_write(catrain, raintime, rainlocx, rainlocy, outmultiplier, name_scenariofile, tstorm, tyear, trealization, maskheight,maskwidth, subrangelat, subrangelon, scenarioname, mask):
+    transposedrain=np.multiply(catrain[:,rainlocy[0] : (rainlocy[0]+maskheight), rainlocx[0] : (rainlocx[0]+maskwidth)],mask)
+    rain_nsst = transposedrain * outmultiplier
 
+    description_string = 'RainyDay storm scenario file for rescaled storm ' + str(tstorm) + ', year ' + str(tyear) + ', realization ' + str(trealization) + ', created from ' + scenarioname
+    times_units, times_calendar = 'minutes since 1970-01-01 00:00.0', 'gregorian'
+
+    # Variable Names
+    history, missing = 'Created ' + str(datetime.now()), '-9999.'
+    source = 'RainyDay storm scenario file created from ' + scenarioname + '. See description for JSON file contents.'
+
+    data = xr.Dataset(
+        {
+            "rain": (["time", "latitude", "longitude"], rain_nsst),
+            "xlocation": (["scalar_dim"], rainlocx),
+            "ylocation": (["scalar_dim"], rainlocy)
+            # "scenariotime":(["time"],raintime)
+        },
+        coords={
+            "time": raintime,
+            "latitude": subrangelat,
+            "longitude": subrangelon,
+            "scalar_dim": [0]
+        },
+        attrs = {
+            "history": history,
+            "source": source,
+            "missing": missing,
+            "description": description_string,
+            "calendar": times_calendar,
+            "times_units": times_units,
+            "latitudes_units": "degrees_north",
+            "longitudes_units": "degrees_east",
+            "rainrate_units": "mm hr^-1",
+            "rainrate_name": "precipitation rate",
+            "xlocation_name": "x index of transposition",
+            "ylocation_name": "y index of transposition"
+        }
+    )
+
+    data.to_netcdf(name_scenariofile)
+    data.close()
 
 
 #==============================================================================    
