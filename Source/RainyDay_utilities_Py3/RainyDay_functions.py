@@ -480,21 +480,21 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, int
 # =============================================================================
 # added Lei 02122025: Calculate the rescaled rainfall
 # =============================================================================
-# @jit(nopython=True, fastmath=True)
-# def numba_multimask_calc_rescale(passrain, trimmask, multiplier):
-#     train = passrain * multiplier * trimmask
-#     rainsum = np.sum(train)
-#     return rainsum
 @jit(nopython=True, fastmath=True)
 def numba_multimask_calc_rescale(passrain, trimmask, multiplier):
-    total = 0.0
-    passrain = np.ascontiguousarray(passrain.astype(np.float32))
-    multiplier = np.ascontiguousarray(multiplier.astype(np.float32))
-    trimmask = np.ascontiguousarray(trimmask.astype(np.float32))
-    for i in prange(passrain.shape[0]):
-        for j in range(passrain.shape[1]):
-            total += passrain[i,j] * multiplier[i,j] * trimmask[i,j]
-    return total
+    train = passrain * multiplier * trimmask
+    rainsum = np.sum(train)
+    return rainsum
+# @jit(nopython=True, fastmath=True)
+# def numba_multimask_calc_rescale(passrain, trimmask, multiplier):
+#     total = 0.0
+#     passrain = np.ascontiguousarray(passrain.astype(np.float32))
+#     multiplier = np.ascontiguousarray(multiplier.astype(np.float32))
+#     trimmask = np.ascontiguousarray(trimmask.astype(np.float32))
+#     for i in prange(passrain.shape[0]):
+#         for j in range(passrain.shape[1]):
+#             total += passrain[i,j] * multiplier[i,j] * trimmask[i,j]
+#     return total
 
 #@jit(nopython=True,fastmath=True,parallel=True)
 @jit(nopython=True,fastmath=True)
