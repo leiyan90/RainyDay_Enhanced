@@ -415,7 +415,7 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, int
     whichstep = np.zeros((len(sstx)), dtype='int32')
     nreals = len(rainsum)
     nsteps = passrain.shape[0]
-    multiout = np.empty((len(sstx), maskheight, maskwidth), dtype='float32')
+    multiout = np.full((len(sstx), maskheight, maskwidth), np.nan, dtype='float32')
 
     if (intensegrid is not None) and (homegrid is not None):
         rescale = True
@@ -439,7 +439,6 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, int
                 intensegrid_trans = intensegrid[y:y + maskheight, x:x + maskwidth] * trimmask
                 multiplier=np.exp( homegrid - intensegrid_trans )
                 # multiplier[multiplier > maxmultiplier] = 1.5
-                # multiout[k, :, :] = multiplier
                 valid_mask = (trimmask != 0)
                 valid_multiplier = multiplier[valid_mask]
 
@@ -449,6 +448,7 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, int
                 p90 = sorted_arr[min(n - 1, int(0.9 * n))]
 
                 multiplier = np.clip(multiplier, p10, p90)
+                multiout[k, :, :] = multiplier
             else:
                 multiplier = 1.
 
