@@ -404,12 +404,83 @@ def SSTalt(passrain,sstx,ssty,trimmask,maskheight,maskwidth,intensemean=None,int
     else:
         return rainsum,whichstep
 
-# =============================================================================
+# =========================================================================================
 # added Lei 02122025: Dimensionless rescaling
-# =============================================================================
+# updated Lei 04012025: extract top n storm/multiplier for writing scenarios (reduce memory)
+# =========================================================================================
+# @jit(fastmath=True)
+# def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, intensegrid=None, homegrid=None, durcheck=False):
+#     #maxmultiplier = 1.5  #LY: should we use this?
+#
+#     rainsum = np.zeros((len(sstx)), dtype='float32')
+#     whichstep = np.zeros((len(sstx)), dtype='int32')
+#     nreals = len(rainsum)
+#     nsteps = passrain.shape[0]
+#     multiout = np.full((len(sstx), maskheight, maskwidth), np.nan, dtype='float32')
+#
+#     if (intensegrid is not None) and (homegrid is not None):
+#         rescale = True
+#     else:
+#         rescale = False
+#
+#     if durcheck == False:
+#         exprain = np.expand_dims(passrain, 0)
+#     else:
+#         exprain = passrain
+#
+#     for k in range(0, nreals):
+#         y = int(ssty[k])
+#         x = int(sstx[k])
+#         if np.all(np.less(exprain[:, y:y + maskheight, x:x + maskwidth], 0.5)):
+#             rainsum[k] = 0.
+#             multiout[k] = -9999.
+#         else:
+#             if rescale:
+#                 # sys.exit('need to fix short duration part')
+#                 intensegrid_trans = intensegrid[y:y + maskheight, x:x + maskwidth] * trimmask
+#                 multiplier=np.exp( homegrid - intensegrid_trans )
+#                 # multiplier[multiplier > maxmultiplier] = 1.5
+#                 valid_mask = (trimmask != 0)
+#                 valid_multiplier = multiplier[valid_mask]
+#
+#                 sorted_arr = np.sort(valid_multiplier)
+#                 n = len(sorted_arr)
+#                 p10 = sorted_arr[max(0, int(0.1 * n) - 1)]
+#                 p90 = sorted_arr[min(n - 1, int(0.9 * n))]
+#
+#                 multiplier = np.clip(multiplier, p10, p90)
+#                 multiout[k, :, :] = multiplier
+#             else:
+#                 multiplier = 1.
+#
+#             if durcheck == True:
+#                 storesum = 0.
+#                 storestep = 0
+#                 for kk in range(0, nsteps):
+#                     if rescale:
+#                         tempsum = numba_multimask_calc_rescale(passrain[kk, y:y + maskheight, x:x + maskwidth], trimmask, multiplier)
+#                     else:
+#                         tempsum = numba_multimask_calc(passrain[kk, :], trimmask, y, x, maskheight, maskwidth) * multiplier
+#
+#                     if tempsum > storesum:
+#                         storesum = tempsum
+#                         storestep = kk
+#
+#                 rainsum[k] = storesum
+#                 whichstep[k] = storestep
+#             else:
+#                 if rescale:
+#                     rainsum[k] = numba_multimask_calc_rescale(passrain[y:y + maskheight, x:x + maskwidth], trimmask, multiplier)
+#                 else:
+#                     rainsum[k] = numba_multimask_calc(passrain, trimmask, y, x, maskheight, maskwidth) * multiplier
+#     if rescale:
+#         return rainsum, multiout, whichstep
+#     else:
+#         return rainsum, whichstep
+
+
 @jit(fastmath=True)
-def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, intensegrid=None, homegrid=None, durcheck=False):
-    #maxmultiplier = 1.5  #LY: should we use this?
+def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, top_whichrain, top_multiplier, durcheck=False, intensegrid=None, homegrid=None, Scenarios=False, storm_pos=None):
 
     rainsum = np.zeros((len(sstx)), dtype='float32')
     whichstep = np.zeros((len(sstx)), dtype='int32')
@@ -427,26 +498,24 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, int
     else:
         exprain = passrain
 
-    for k in range(0, nreals):
+    for k in range(nreals):
         y = int(ssty[k])
         x = int(sstx[k])
+
         if np.all(np.less(exprain[:, y:y + maskheight, x:x + maskwidth], 0.5)):
             rainsum[k] = 0.
             multiout[k] = -9999.
         else:
             if rescale:
-                # sys.exit('need to fix short duration part')
                 intensegrid_trans = intensegrid[y:y + maskheight, x:x + maskwidth] * trimmask
-                multiplier=np.exp( homegrid - intensegrid_trans )
-                # multiplier[multiplier > maxmultiplier] = 1.5
+                multiplier = np.exp(homegrid - intensegrid_trans)
+
                 valid_mask = (trimmask != 0)
                 valid_multiplier = multiplier[valid_mask]
-
                 sorted_arr = np.sort(valid_multiplier)
                 n = len(sorted_arr)
-                p10 = sorted_arr[max(0, int(0.1 * n) - 1)]
-                p90 = sorted_arr[min(n - 1, int(0.9 * n))]
-
+                p10 = sorted_arr[max(0, int(0.1*n)-1)]
+                p90 = sorted_arr[min(n-1, int(0.9*n))]
                 multiplier = np.clip(multiplier, p10, p90)
                 multiout[k, :, :] = multiplier
             else:
@@ -472,10 +541,31 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, int
                     rainsum[k] = numba_multimask_calc_rescale(passrain[y:y + maskheight, x:x + maskwidth], trimmask, multiplier)
                 else:
                     rainsum[k] = numba_multimask_calc(passrain, trimmask, y, x, maskheight, maskwidth) * multiplier
-    if rescale:
-        return rainsum, multiout, whichstep
-    else:
-        return rainsum, whichstep
+
+        # -----------------------------------------------------------
+        # If Scenarios==True
+        # Sort rainsum and extract the corresponding top n multiplier
+        # -----------------------------------------------------------
+        if Scenarios and (storm_pos is not None):
+            y_ = storm_pos[1][k]
+            z_ = storm_pos[2][k]
+            val = rainsum[k]
+
+            # compare and update top n storms
+            if val > top_whichrain[0, y_, z_]:
+                # update the smallest one
+                top_whichrain[0, y_, z_] = val
+                top_multiplier[0, y_, z_, :, :] = multiout[k,:,:]
+                # re-sort
+                subvals = top_whichrain[:, y_, z_].copy()
+                subidx = np.argsort(subvals)
+                sorted_vals = subvals[subidx]
+                sorted_multi = top_multiplier[subidx, y_, z_, :, :].copy()
+                top_whichrain[:, y_, z_] = sorted_vals
+                top_multiplier[:, y_, z_, :, :] = sorted_multi
+
+    return rainsum, whichstep
+
 
 # =============================================================================
 # added Lei 02122025: Calculate the rescaled rainfall
