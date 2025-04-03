@@ -1972,10 +1972,12 @@ if FreqAnalysis:
         xmask=xmask[np.equal(domainmask,True)]
         ymask=ymask[np.equal(domainmask,True)]
         
-    if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
+    if rescaletype=='dimensionless' and Scenarios==True:
         #whichmultiplier=np.empty_like(whichrain)
-        whichmultiplier = np.empty((whichrain.shape[0], whichrain.shape[1], whichrain.shape[2], whichrain.shape[3], maskheight, maskwidth),dtype="float32")   #LYW
-        whichmultiplier[:]=np.nan
+        # whichmultiplier = np.empty((whichrain.shape[0], whichrain.shape[1], whichrain.shape[2], whichrain.shape[3], maskheight, maskwidth),dtype="float32")   #LYW
+        # whichmultiplier[:]=np.nan
+        top_whichrain = np.full((nperyear, whichrain.shape[1], whichrain.shape[2]), -9999.0, dtype='float32')
+        top_multiplier = np.full((nperyear, whichrain.shape[1], whichrain.shape[2], maskheight, maskwidth), np.nan,dtype='float32')
 
         
     #==============================================================================
@@ -2233,7 +2235,7 @@ if FreqAnalysis:
         else:
             for pt in np.arange(0,whichx.shape[3]):
                 if rescaletype == 'dimensionless' and areatype.lower() != 'pointlist' and areatype.lower() != 'point':  # LYW: dimensionless rescaling
-                    temprain, whichmultiplier[whichstorms == i, pt], _ = RainyDay.SSTalt_normalized(passrain,whichx[whichstorms == i, pt], whichy[whichstorms == i, pt],trimmask, maskheight,maskwidth,durcheck=durcorrection,intensegrid=intensegrid,homegrid=homegrid)
+                    temprain, _ = RainyDay.SSTalt_normalized(passrain,whichx[whichstorms == i, pt], whichy[whichstorms == i, pt],trimmask, maskheight,maskwidth,top_whichrain, top_multiplier,durcheck=durcorrection,intensegrid=intensegrid,homegrid=homegrid, Scenarios = Scenarios, storm_pos=np.where(whichstorms==i))
                     whichrain[whichstorms == i, pt] = temprain * rainprop.timeres / 60. / mnorm
                 if rescaletype=='stochastic' and areatype.lower()!='pointlist' and areatype.lower!='point':
                     temprain,whichmultiplier[whichstorms==i,pt],whichstep=RainyDay.SSTalt(passrain,whichx[whichstorms==i,pt],whichy[whichstorms==i,pt],trimmask,maskheight,maskwidth,intensemean=intensemean,intensestd=intensestd,intensecorr=intensecorr,homemean=homemean,homestd=homestd,durcheck=durcorrection)
@@ -2442,13 +2444,13 @@ if FreqAnalysis:
                 sortangle=np.empty((maxind.shape),dtype="float32")
                 maxangles[:]=-9999.
                 sortangle[:]=-9999.
-            if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
-                maxmultiplier = np.empty((maxind.shape[0], maxind.shape[1], maxind.shape[2], maskheight, maskwidth),
-                                         dtype="float32")
-                sortmultiplier = np.empty((maxind.shape[0], maxind.shape[1], maxind.shape[2], maskheight, maskwidth),
-                                          dtype="float32")
-                maxmultiplier[:]=-9999.
-                sortmultiplier[:]=-9999.
+            # if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
+            #     maxmultiplier = np.empty((maxind.shape[0], maxind.shape[1], maxind.shape[2], maskheight, maskwidth),
+            #                              dtype="float32")
+            #     sortmultiplier = np.empty((maxind.shape[0], maxind.shape[1], maxind.shape[2], maskheight, maskwidth),
+            #                               dtype="float32")
+            #     maxmultiplier[:]=-9999.
+            #     sortmultiplier[:]=-9999.
                 
             for i in range(0,np.max(ncounts)):
                 maxx[maxind==i]=np.squeeze(whichx[i,np.squeeze(maxind==i)])
@@ -2459,8 +2461,8 @@ if FreqAnalysis:
                 
                 if rotation:
                     maxangles[maxind==i]=randangle[i,maxind==i]
-                if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
-                    maxmultiplier[maxind==i]=np.squeeze(whichmultiplier[i,maxind==i])
+                # if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
+                #     maxmultiplier[maxind==i]=np.squeeze(whichmultiplier[i,maxind==i])
     #            elif calctype.lower()=='npyear':
     #                sys.exit("having problems here")
     #                for stm in range(0,nperyear):
@@ -2497,8 +2499,8 @@ if FreqAnalysis:
                 #     sortstep[:,i]=maxstep[sortind[:,i],i]
                 if rotation:
                     sortangle[:,i]=maxangles[sortind[:,i],i]
-                if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
-                    sortmultiplier[:,i]=maxmultiplier[sortind[:,i],i]
+                # if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
+                #     sortmultiplier[:,i]=maxmultiplier[sortind[:,i],i]
             
                 
             # FIND THE TIMES:
@@ -2549,10 +2551,10 @@ if FreqAnalysis:
                 #     sortstep=sortstep[reducedlevind,:]
 
                 whichorigstorm=whichorigstorm[reducedlevind,:]
-                if rotation:    
+                if rotation:
                     sortangle=sortangle[reducedlevind,:]
-                if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':        
-                    sortmultiplier=sortmultiplier[reducedlevind,:]
+                # if rescaletype=='stochastic' or rescaletype=='deterministic' or rescaletype=='dimensionless':
+                #     sortmultiplier=sortmultiplier[reducedlevind,:]
             
         nanmask=deepcopy(trimmask)
         nanmask[np.isclose(nanmask,0.)]=np.nan
@@ -2734,32 +2736,42 @@ if FreqAnalysis:
         #
         # whichx=np.take_along_axis(np.squeeze(whichx),sortind,axis=0)
         # whichy=np.take_along_axis(np.squeeze(whichy),sortind,axis=0)
+        whichrain_sq = np.squeeze(whichrain)
+        whichstorms_sq = np.squeeze(whichstorms)
+        whichx_sq = np.squeeze(whichx)
+        whichy_sq = np.squeeze(whichy)
 
         # Get sorting indices based on the first channel of whichrain along the first axis
         sortind_first_axis = np.argsort(whichrain[:, :, :, 0], axis=0)
 
         # Sort all arrays along the first axis
-        whichrain_sorted_first = np.take_along_axis(np.squeeze(whichrain), sortind_first_axis, axis=0)
-        whichstorms_sorted_first = np.take_along_axis(np.squeeze(whichstorms), sortind_first_axis, axis=0)
-        whichx_sorted_first = np.take_along_axis(np.squeeze(whichx), sortind_first_axis, axis=0)
-        whichy_sorted_first = np.take_along_axis(np.squeeze(whichy), sortind_first_axis, axis=0)
+        whichrain_sorted = np.take_along_axis(whichrain_sq, sortind_first_axis, axis=0)
+        whichstorms_sorted = np.take_along_axis(whichstorms_sq, sortind_first_axis, axis=0)
+        whichx_sorted = np.take_along_axis(whichx_sq, sortind_first_axis, axis=0)
+        whichy_sorted = np.take_along_axis(whichy_sq, sortind_first_axis, axis=0)
 
         # Get sorting indices based on the first channel of whichrain_sorted_first along the second axis
-        sortind_second_axis = np.argsort(whichrain_sorted_first[-1, :, :],axis=0)  #LY: sort the AM of first channel along the second axis (nyear), to (if needed) select storms based on given return period
+        sortind_second_axis = np.argsort(whichrain_sorted[-1, :, :],axis=0)  #LY: sort the AM of first channel along the second axis (nyear), to (if needed) select storms based on given return period
 
         # Sort all arrays along the second axis
-        for i in range(whichrain_sorted_first.shape[0]):
-            for j in range(whichrain_sorted_first.shape[2]):
-                whichrain_sorted_first[i, :, j] = whichrain_sorted_first[i, sortind_second_axis[:,j], j]
-                whichstorms_sorted_first[i, :, j] = whichstorms_sorted_first[i, sortind_second_axis[:,j], j]
-                whichx_sorted_first[i, :, j] = whichx_sorted_first[i, sortind_second_axis[:,j], j]
-                whichy_sorted_first[i, :, j] = whichy_sorted_first[i, sortind_second_axis[:,j], j]
+        # for i in range(whichrain_sorted_first.shape[0]):
+        #     for j in range(whichrain_sorted_first.shape[2]):
+        #         whichrain_sorted_first[i, :, j] = whichrain_sorted_first[i, sortind_second_axis[:,j], j]
+        #         whichstorms_sorted_first[i, :, j] = whichstorms_sorted_first[i, sortind_second_axis[:,j], j]
+        #         whichx_sorted_first[i, :, j] = whichx_sorted_first[i, sortind_second_axis[:,j], j]
+        #         whichy_sorted_first[i, :, j] = whichy_sorted_first[i, sortind_second_axis[:,j], j]
+        sortind_second_exp = sortind_second_axis[np.newaxis, :, :]
+        whichrain_sorted = np.take_along_axis(whichrain_sorted, sortind_second_exp, axis=1)
+        whichstorms_sorted = np.take_along_axis(whichstorms_sorted, sortind_second_exp, axis=1)
+        whichx_sorted = np.take_along_axis(whichx_sorted, sortind_second_exp, axis=1)
+        whichy_sorted = np.take_along_axis(whichy_sorted, sortind_second_exp, axis=1)
 
         # Optionally, replace the original arrays with the sorted ones
-        whichrain = whichrain_sorted_first
-        whichstorms = whichstorms_sorted_first
-        whichx = whichx_sorted_first
-        whichy = whichy_sorted_first
+        whichrain, whichstorms, whichx, whichy = whichrain_sorted, whichstorms_sorted, whichx_sorted, whichy_sorted
+        # whichrain = whichrain_sorted_first
+        # whichstorms = whichstorms_sorted_first
+        # whichx = whichx_sorted_first
+        # whichy = whichy_sorted_first
 
 
         # LY: the main variables for writing the scenarios
@@ -2768,7 +2780,7 @@ if FreqAnalysis:
         writey=whichy[-nperyear:,minind:,:]
         
         writemask=trimmask
-        writemask[np.greater(trimmask,0.)]=1.   # we don't want fractional masks here
+        writemask[np.greater(trimmask,0.)]=1.   # we don't want fractional masks here, only 0 and 1, and will result in 0. in the final scenario
         
         
         if rotation:
@@ -2777,12 +2789,11 @@ if FreqAnalysis:
             binwriteang=np.digitize(writeangle.ravel(),angbins).reshape(writeangle.shape)
         if rescaletype=='dimensionless':
             print("You are rescaling the rainfall scenarios\nranking rescaling factors for writing scenarios...")
-            sortind_first_axis_expanded = sortind_first_axis[:, :, :, np.newaxis, np.newaxis]
-            whichmultiplier_sorted_first = np.take_along_axis(np.squeeze(whichmultiplier),sortind_first_axis_expanded, axis=0)
-            sortind_second_axis_expanded = sortind_second_axis[np.newaxis, :, :, np.newaxis, np.newaxis]
-            whichmultiplier_sorted_second = np.take_along_axis(whichmultiplier_sorted_first,sortind_second_axis_expanded, axis=1)
-            writemultiplier=whichmultiplier_sorted_second[-nperyear:,minind:,:]
-        
+            sortind_for_year = np.argsort(top_whichrain[-1, :, :], axis=0)  # shape=(N_year,N_real)
+
+            whichmultiplier_sorted_second = np.take_along_axis(top_multiplier, sortind_for_year[np.newaxis, :, :, np.newaxis, np.newaxis], axis=1)
+            writemultiplier = whichmultiplier_sorted_second[:, minind:, :, :, :]
+
         for i in np.arange(0,nstorms):
             print("writing scenarios for storm "+str(i+1))
             catrain,raintime,_,_,_,_,_,_,_,_,_ = RainyDay.readcatalog(stormlist[i])
@@ -2805,7 +2816,7 @@ if FreqAnalysis:
                     outx=writex[stormindex==k]
                     outy=writey[stormindex==k]
                     
-                    name_scenariofile=fullpath+'/Realizations/Realization'+str(trealization[0]+1)+'/scenario_'+scenarioname+'_rlz'+str(trealization[0]+1)+'year'+str(tyear[0]+1)+'storm'+str(tstorm[0]+1)+'.nc'
+                    name_scenariofile=fullpath+'/Realizations/realization'+str(trealization[0]+1)+'/scenario_'+scenarioname+'_rlz'+str(trealization[0]+1)+'year'+str(tyear[0]+1)+'storm'+str(tstorm[0]+1)+'.nc'
                     #outrain=RainyDay.SSTspin_write_v2(catrain,np.squeeze(writex[:,rlz]),np.squeeze(writey[:,rlz]),np.squeeze(writestorm[:,rlz]),nanmask,maskheight,maskwidth,precat,cattime[:,-1],rainprop,spin=prependrain,flexspin=False,samptype=transpotype,cumkernel=cumkernel,rotation=rotation,domaintype=domain_type)
                     if rescaletype == 'dimensionless':
                         outmultiplier = writemultiplier[stormindex == k]
