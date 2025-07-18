@@ -1971,7 +1971,11 @@ if FreqAnalysis:
         xmask,ymask=np.meshgrid(np.arange(0,domainmask.shape[1],1),np.arange(0,domainmask.shape[0],1))
         xmask=xmask[np.equal(domainmask,True)]
         ymask=ymask[np.equal(domainmask,True)]
-        
+
+    if rescaletype=='dimensionless' and Scenarios==False:
+        top_whichrain = np.full((1, whichrain.shape[1], whichrain.shape[2]), -9999.0, dtype='float32')
+        top_multiplier = np.full((1, whichrain.shape[1], whichrain.shape[2], maskheight, maskwidth), np.nan,dtype='float32')
+
     if rescaletype=='dimensionless' and Scenarios==True:
         #whichmultiplier=np.empty_like(whichrain)
         # whichmultiplier = np.empty((whichrain.shape[0], whichrain.shape[1], whichrain.shape[2], whichrain.shape[3], maskheight, maskwidth),dtype="float32")   #LYW
@@ -2789,9 +2793,8 @@ if FreqAnalysis:
             binwriteang=np.digitize(writeangle.ravel(),angbins).reshape(writeangle.shape)
         if rescaletype=='dimensionless':
             print("You are rescaling the rainfall scenarios\nranking rescaling factors for writing scenarios...")
-            sortind_for_year = np.argsort(top_whichrain[-1, :, :], axis=0)  # shape=(N_year,N_real)
 
-            whichmultiplier_sorted_second = np.take_along_axis(top_multiplier, sortind_for_year[np.newaxis, :, :, np.newaxis, np.newaxis], axis=1)
+            whichmultiplier_sorted_second = np.take_along_axis(top_multiplier,sortind_second_axis[np.newaxis, :, :, np.newaxis, np.newaxis], axis=1)
             writemultiplier = whichmultiplier_sorted_second[:, minind:, :, :, :]
 
         for i in np.arange(0,nstorms):
