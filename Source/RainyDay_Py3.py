@@ -2089,10 +2089,10 @@ if FreqAnalysis:
             if int_ymax < len(intenselat) - 1:
                 int_ymax += 1
 
-            intensegrid = intenserain[int_ymin:int_ymax, int_xmin:int_xmax]
+            intensegrid = intenserain[int_ymin:int_ymax+1, int_xmin:int_xmax+1]
             intensegrid = np.log(intensegrid)
-            intenselat = intenselat[int_ymin:int_ymax]
-            intenselon = intenselon[int_xmin:int_xmax]
+            intenselat = intenselat[int_ymin:int_ymax+1]
+            intenselon = intenselon[int_xmin:int_xmax+1]
 
             y_min, x_min = np.argwhere(catmask != 0).min(axis=0)
             y_max, x_max = np.argwhere(catmask != 0).max(axis=0)
