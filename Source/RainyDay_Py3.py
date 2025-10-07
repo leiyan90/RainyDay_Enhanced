@@ -1963,11 +1963,12 @@ if FreqAnalysis:
         
     if durcorrection:
         whichtimeind=np.zeros((whichstorms.shape),dtype='float32')
-    
-    
-    if transpotype=='uniform' and domain_type=='irregular':
-        domainmask[-maskheight:,:]=0.
-        domainmask[:,-maskwidth:]=0.
+
+    if transpotype == 'uniform' and domain_type == 'irregular':
+        if maskheight > 1:
+            domainmask[-maskheight:,:] = 0.  # Trim northern edge-confusing because the domain is flipped N-S for consistency with xarray
+        if maskwidth > 1:
+            domainmask[:, -maskwidth:] = 0.  # Trim eastern edge
         xmask,ymask=np.meshgrid(np.arange(0,domainmask.shape[1],1),np.arange(0,domainmask.shape[0],1))
         xmask=xmask[np.equal(domainmask,True)]
         ymask=ymask[np.equal(domainmask,True)]
