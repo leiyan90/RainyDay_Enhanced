@@ -510,13 +510,13 @@ def SSTalt_normalized(passrain, sstx, ssty, trimmask, maskheight, maskwidth, top
                 intensegrid_trans = intensegrid[y:y + maskheight, x:x + maskwidth] * trimmask
                 multiplier = np.exp(homegrid - intensegrid_trans)
 
-                valid_mask = (trimmask != 0)
-                valid_multiplier = multiplier[valid_mask]
-                sorted_arr = np.sort(valid_multiplier)
-                n = len(sorted_arr)
-                p10 = sorted_arr[max(0, int(0.1*n)-1)]
-                p90 = sorted_arr[min(n-1, int(0.9*n))]
-                multiplier = np.clip(multiplier, p10, p90)
+                # valid_mask = (trimmask != 0)
+                # valid_multiplier = multiplier[valid_mask]
+                # sorted_arr = np.sort(valid_multiplier)
+                # n = len(sorted_arr)
+                # p10 = sorted_arr[max(0, int(0.1*n)-1)]
+                # p90 = sorted_arr[min(n-1, int(0.9*n))]
+                # multiplier = np.clip(multiplier, p10, p90)
                 multiout[k, :, :] = multiplier
             else:
                 multiplier = 1.
