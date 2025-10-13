@@ -2075,7 +2075,7 @@ if FreqAnalysis:
         if '.nc' in rescalingfile:
             #sys.exit('need to set this up')
             #intenserain,_,intenselat,intenselon=RainyDay.readintensityfile(rescalingfile)
-            intenserain, intenselat, intenselon = RainyDay.read_quantilefile(amfile = rescalingfile, duration=duration, return_period=2, mask=False)  #LYW: read the quantile map and crop it
+            intenserain, intenselat, intenselon = RainyDay.read_quantilefile(amfile = rescalingfile, duration=duration, return_period=10, mask=False)  #LYW: read the quantile map and crop it
             intensemask = np.equal(np.sum(intenserain, axis=0), 0.)
             intenserain[:, intensemask] = np.nan
 
